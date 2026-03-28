@@ -1,9 +1,10 @@
 services:
   - type: web
     name: mcp-justwatch
-    runtime: docker
+    runtime: python
     plan: free
-    dockerfilePath: ./Dockerfile
+    buildCommand: pip install -r requirements.txt && pip install .
+    startCommand: python -m mcp_justwatch.server
     envVars:
       - key: MCP_BASE_URL
         value: https://mcp-justwatch.onrender.com

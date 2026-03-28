@@ -239,12 +239,30 @@ def get_offers_for_countries(
         return f"Error getting offers: {str(e)}"
 
 
+def create_app():
+    """Create the ASGI app for HTTP deployment."""
+    from starlette.responses import JSONResponse
+    from starlette.routing import Route
+
+    app = mcp.http_app()
+
+    async def health(request):
+        return JSONResponse({"status": "ok"})
+
+    app.routes.insert(0, Route("/health", health))
+    app.routes.insert(0, Route("/", health))
+    return app
+
+
 def main():
     """Entry point for the MCP server."""
     if base_url:
+        import uvicorn
+
         port = int(os.environ.get("PORT", "10000"))
         logger.info(f"Starting HTTP server on port {port}")
-        mcp.run(transport="streamable-http", host="0.0.0.0", port=port)
+        app = create_app()
+        uvicorn.run(app, host="0.0.0.0", port=port)
     else:
         mcp.run()
 

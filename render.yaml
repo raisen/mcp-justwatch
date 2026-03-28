@@ -3,8 +3,14 @@ services:
     name: mcp-justwatch
     runtime: python
     plan: free
-    buildCommand: pip install -r requirements.txt && pip install .
-    startCommand: python -m mcp_justwatch.server
+    buildCommand: pip install -r requirements.txt
+    startCommand: python app.py
     envVars:
       - key: MCP_BASE_URL
         value: https://mcp-justwatch.onrender.com
+      - key: HOST
+        value: "0.0.0.0"
+      - key: FASTMCP_STATELESS_HTTP
+        value: "true"
+      - key: PYTHONUNBUFFERED
+        value: "1"

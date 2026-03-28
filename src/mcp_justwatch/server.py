@@ -8,14 +8,11 @@ from fastmcp import FastMCP
 from fastmcp.server.auth import OAuthProvider
 from simplejustwatchapi import justwatch
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
 logger = logging.getLogger(__name__)
-
-# Configure file handler for this module's logger only
-file_handler = logging.FileHandler("output.log", mode="a")
-file_handler.setLevel(logging.INFO)
-file_handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
-logger.addHandler(file_handler)
 
 # Configure OAuth if running in HTTP mode (remote deployment)
 base_url = os.environ.get("MCP_BASE_URL")
@@ -250,7 +247,7 @@ def get_offers_for_countries(
 def main():
     """Entry point for the MCP server."""
     if base_url:
-        port = int(os.environ.get("PORT", "8000"))
+        port = int(os.environ.get("PORT", "10000"))
         logger.info(f"Starting HTTP server on port {port}")
         mcp.run(transport="streamable-http", host="0.0.0.0", port=port)
     else:

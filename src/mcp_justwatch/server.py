@@ -30,7 +30,19 @@ class InMemoryOAuthProvider(OAuthProvider):
         self._auth_codes: dict[str, dict] = {}
         self._tokens: dict[str, dict] = {}
 
+    # Only allow registrations from known MCP clients (Claude, etc.)
+    ALLOWED_REDIRECT_PREFIXES = [
+        "https://claude.ai/",
+        "http://localhost",
+        "http://127.0.0.1",
+    ]
+
     async def register_client(self, client_info: OAuthClientInformationFull) -> None:
+        # Verify redirect URIs are from allowed clients
+        for uri in client_info.redirect_uris:
+            uri_str = str(uri)
+            if not any(uri_str.startswith(p) for p in self.ALLOWED_REDIRECT_PREFIXES):
+                raise ValueError("Registration denied: unauthorized redirect URI")
         self._clients[client_info.client_id] = client_info
         logger.info(f"Registered client: {client_info.client_id}")
 

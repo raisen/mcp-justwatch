@@ -5,10 +5,11 @@ import os
 from typing import Optional
 
 import secrets
+import time
 
 from fastmcp import FastMCP
 from fastmcp.server.auth import AccessToken, OAuthProvider
-from mcp.server.auth.provider import AuthorizationParams
+from mcp.server.auth.provider import AuthorizationCode, AuthorizationParams
 from mcp.server.auth.settings import ClientRegistrationOptions
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 from simplejustwatchapi import justwatch
@@ -40,12 +41,15 @@ class InMemoryOAuthProvider(OAuthProvider):
         self, client: OAuthClientInformationFull, params: AuthorizationParams
     ) -> str:
         code = secrets.token_urlsafe(32)
-        self._auth_codes[code] = {
-            "client_id": client.client_id,
-            "redirect_uri": str(params.redirect_uri),
-            "code_challenge": params.code_challenge,
-            "scopes": params.scopes or [],
-        }
+        self._auth_codes[code] = AuthorizationCode(
+            code=code,
+            client_id=client.client_id,
+            redirect_uri=params.redirect_uri,
+            redirect_uri_provided_explicitly=params.redirect_uri_provided_explicitly,
+            code_challenge=params.code_challenge,
+            scopes=params.scopes or [],
+            expires_at=time.time() + 300,
+        )
         redirect = str(params.redirect_uri)
         sep = "&" if "?" in redirect else "?"
         url = f"{redirect}{sep}code={code}"
@@ -53,25 +57,28 @@ class InMemoryOAuthProvider(OAuthProvider):
             url += f"&state={params.state}"
         return url
 
-    async def load_authorization_code(self, client, authorization_code: str):
-        data = self._auth_codes.get(authorization_code)
-        if data and data["client_id"] == client.client_id:
-            return authorization_code
+    async def load_authorization_code(
+        self, client: OAuthClientInformationFull, authorization_code: str
+    ) -> AuthorizationCode | None:
+        auth_code = self._auth_codes.get(authorization_code)
+        if auth_code and auth_code.client_id == client.client_id:
+            return auth_code
         return None
 
-    async def exchange_authorization_code(self, client, authorization_code):
-        data = self._auth_codes.pop(authorization_code, None)
-        if not data:
-            return None
+    async def exchange_authorization_code(
+        self, client: OAuthClientInformationFull, authorization_code: AuthorizationCode
+    ) -> OAuthToken:
+        self._auth_codes.pop(authorization_code.code, None)
+        scopes = authorization_code.scopes
         access_token = secrets.token_urlsafe(32)
         refresh_token = secrets.token_urlsafe(32)
         self._tokens[access_token] = {
             "client_id": client.client_id,
-            "scopes": data["scopes"],
+            "scopes": scopes,
         }
         self._tokens[refresh_token] = {
             "client_id": client.client_id,
-            "scopes": data["scopes"],
+            "scopes": scopes,
             "is_refresh": True,
         }
         return OAuthToken(
@@ -79,7 +86,7 @@ class InMemoryOAuthProvider(OAuthProvider):
             token_type="bearer",
             expires_in=3600,
             refresh_token=refresh_token,
-            scope=" ".join(data["scopes"]) if data["scopes"] else None,
+            scope=" ".join(scopes) if scopes else None,
         )
 
     async def load_access_token(self, token: str):

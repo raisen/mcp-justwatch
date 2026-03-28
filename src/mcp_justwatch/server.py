@@ -5,7 +5,8 @@ import os
 from typing import Optional
 
 from fastmcp import FastMCP
-from fastmcp.server.auth import AccessToken, TokenVerifier
+from fastmcp.server.auth import OAuthProvider
+from mcp.server.auth.settings import ClientRegistrationOptions
 from simplejustwatchapi import justwatch
 
 logging.basicConfig(
@@ -14,26 +15,15 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-
-class BearerTokenAuth(TokenVerifier):
-    """Simple bearer token authentication."""
-
-    def __init__(self, token: str):
-        super().__init__()
-        self._token = token
-
-    async def verify_token(self, token: str) -> AccessToken | None:
-        if token == self._token:
-            return AccessToken(token=token, client_id="authorized-user", scopes=[])
-        return None
-
-
-# Configure auth if MCP_AUTH_TOKEN is set (remote deployment)
-auth_token = os.environ.get("MCP_AUTH_TOKEN")
+# Configure OAuth if MCP_BASE_URL is set (remote deployment)
+base_url = os.environ.get("MCP_BASE_URL")
 auth_provider = None
-if auth_token:
-    auth_provider = BearerTokenAuth(token=auth_token)
-    logger.info("Bearer token auth enabled")
+if base_url:
+    auth_provider = OAuthProvider(
+        base_url=base_url,
+        client_registration_options=ClientRegistrationOptions(enabled=True),
+    )
+    logger.info(f"OAuth enabled with base URL: {base_url}")
 
 # Initialize FastMCP server
 mcp = FastMCP("mcp-justwatch", auth=auth_provider)

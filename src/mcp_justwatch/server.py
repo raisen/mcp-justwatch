@@ -4,9 +4,13 @@ import logging
 import os
 from typing import Optional
 
+import secrets
+
 from fastmcp import FastMCP
-from fastmcp.server.auth import OAuthProvider
+from fastmcp.server.auth import AccessToken, OAuthProvider
+from mcp.server.auth.provider import AuthorizationParams
 from mcp.server.auth.settings import ClientRegistrationOptions
+from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 from simplejustwatchapi import justwatch
 
 logging.basicConfig(
@@ -15,11 +19,121 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
+class InMemoryOAuthProvider(OAuthProvider):
+    """OAuth provider with in-memory storage for clients, codes, and tokens."""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._clients: dict[str, OAuthClientInformationFull] = {}
+        self._auth_codes: dict[str, dict] = {}
+        self._tokens: dict[str, dict] = {}
+
+    async def register_client(self, client_info: OAuthClientInformationFull) -> None:
+        self._clients[client_info.client_id] = client_info
+        logger.info(f"Registered client: {client_info.client_id}")
+
+    async def get_client(self, client_id: str) -> OAuthClientInformationFull | None:
+        return self._clients.get(client_id)
+
+    async def authorize(
+        self, client: OAuthClientInformationFull, params: AuthorizationParams
+    ) -> str:
+        code = secrets.token_urlsafe(32)
+        self._auth_codes[code] = {
+            "client_id": client.client_id,
+            "redirect_uri": str(params.redirect_uri),
+            "code_challenge": params.code_challenge,
+            "scopes": params.scopes or [],
+        }
+        redirect = str(params.redirect_uri)
+        sep = "&" if "?" in redirect else "?"
+        url = f"{redirect}{sep}code={code}"
+        if params.state:
+            url += f"&state={params.state}"
+        return url
+
+    async def load_authorization_code(self, client, authorization_code: str):
+        data = self._auth_codes.get(authorization_code)
+        if data and data["client_id"] == client.client_id:
+            return authorization_code
+        return None
+
+    async def exchange_authorization_code(self, client, authorization_code):
+        data = self._auth_codes.pop(authorization_code, None)
+        if not data:
+            return None
+        access_token = secrets.token_urlsafe(32)
+        refresh_token = secrets.token_urlsafe(32)
+        self._tokens[access_token] = {
+            "client_id": client.client_id,
+            "scopes": data["scopes"],
+        }
+        self._tokens[refresh_token] = {
+            "client_id": client.client_id,
+            "scopes": data["scopes"],
+            "is_refresh": True,
+        }
+        return OAuthToken(
+            access_token=access_token,
+            token_type="bearer",
+            expires_in=3600,
+            refresh_token=refresh_token,
+            scope=" ".join(data["scopes"]) if data["scopes"] else None,
+        )
+
+    async def load_access_token(self, token: str):
+        data = self._tokens.get(token)
+        if data and not data.get("is_refresh"):
+            return token
+        return None
+
+    async def load_refresh_token(self, client, refresh_token: str):
+        data = self._tokens.get(refresh_token)
+        if data and data.get("is_refresh") and data["client_id"] == client.client_id:
+            return refresh_token
+        return None
+
+    async def exchange_refresh_token(self, client, refresh_token, scopes):
+        data = self._tokens.get(refresh_token)
+        if not data:
+            return None
+        new_access = secrets.token_urlsafe(32)
+        new_refresh = secrets.token_urlsafe(32)
+        self._tokens[new_access] = {
+            "client_id": client.client_id,
+            "scopes": scopes or data["scopes"],
+        }
+        self._tokens[new_refresh] = {
+            "client_id": client.client_id,
+            "scopes": scopes or data["scopes"],
+            "is_refresh": True,
+        }
+        del self._tokens[refresh_token]
+        return OAuthToken(
+            access_token=new_access,
+            token_type="bearer",
+            expires_in=3600,
+            refresh_token=new_refresh,
+        )
+
+    async def verify_token(self, token: str) -> AccessToken | None:
+        data = self._tokens.get(token)
+        if data and not data.get("is_refresh"):
+            return AccessToken(
+                token=token, client_id=data["client_id"], scopes=data["scopes"]
+            )
+        return None
+
+    async def revoke_token(self, token) -> None:
+        self._tokens.pop(token, None)
+
+
 # Configure OAuth if MCP_BASE_URL is set (remote deployment)
 base_url = os.environ.get("MCP_BASE_URL")
 auth_provider = None
 if base_url:
-    auth_provider = OAuthProvider(
+    auth_provider = InMemoryOAuthProvider(
         base_url=base_url,
         client_registration_options=ClientRegistrationOptions(enabled=True),
     )

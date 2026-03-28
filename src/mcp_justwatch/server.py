@@ -1,9 +1,11 @@
 """MCP server for JustWatch streaming availability data using FastMCP."""
 
 import logging
+import os
 from typing import Optional
 
 from fastmcp import FastMCP
+from fastmcp.server.auth import OAuthProvider
 from simplejustwatchapi import justwatch
 
 logging.basicConfig(level=logging.INFO)
@@ -15,8 +17,15 @@ file_handler.setLevel(logging.INFO)
 file_handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
 logger.addHandler(file_handler)
 
+# Configure OAuth if running in HTTP mode (remote deployment)
+base_url = os.environ.get("MCP_BASE_URL")
+auth_provider = None
+if base_url:
+    auth_provider = OAuthProvider(base_url=base_url)
+    logger.info(f"OAuth enabled with base URL: {base_url}")
+
 # Initialize FastMCP server
-mcp = FastMCP("mcp-justwatch")
+mcp = FastMCP("mcp-justwatch", auth=auth_provider)
 
 
 def format_media_entry(entry, index: Optional[int] = None) -> str:
@@ -240,7 +249,12 @@ def get_offers_for_countries(
 
 def main():
     """Entry point for the MCP server."""
-    mcp.run()
+    if base_url:
+        port = int(os.environ.get("PORT", "8000"))
+        logger.info(f"Starting HTTP server on port {port}")
+        mcp.run(transport="streamable-http", host="0.0.0.0", port=port)
+    else:
+        mcp.run()
 
 
 if __name__ == "__main__":

@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: mcp-justwatch
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: MCP_BASE_URL
+        value: https://mcp-justwatch.onrender.com

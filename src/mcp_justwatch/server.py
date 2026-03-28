@@ -24,30 +24,33 @@ logger = logging.getLogger(__name__)
 class InMemoryOAuthProvider(OAuthProvider):
     """OAuth provider with in-memory storage for clients, codes, and tokens."""
 
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self._clients: dict[str, OAuthClientInformationFull] = {}
-        self._auth_codes: dict[str, dict] = {}
+    def __init__(self, client_id: str, client_secret: str, **kwargs):
+        # Disable DCR - only pre-registered clients allowed
+        super().__init__(client_registration_options=None, **kwargs)
+        self._auth_codes: dict[str, AuthorizationCode] = {}
         self._tokens: dict[str, dict] = {}
-
-    # Only allow registrations from known MCP clients (Claude, etc.)
-    ALLOWED_REDIRECT_PREFIXES = [
-        "https://claude.ai/",
-        "http://localhost",
-        "http://127.0.0.1",
-    ]
+        # Pre-register the single allowed client
+        self._client = OAuthClientInformationFull(
+            client_id=client_id,
+            client_secret=client_secret,
+            redirect_uris=[
+                "https://claude.ai/api/mcp/auth_callback",
+                "http://localhost:3000/callback",
+                "http://localhost/callback",
+            ],
+            client_name="claude",
+            grant_types=["authorization_code", "refresh_token"],
+            response_types=["code"],
+            token_endpoint_auth_method="client_secret_post",
+        )
 
     async def register_client(self, client_info: OAuthClientInformationFull) -> None:
-        # Verify redirect URIs are from allowed clients
-        for uri in client_info.redirect_uris:
-            uri_str = str(uri)
-            if not any(uri_str.startswith(p) for p in self.ALLOWED_REDIRECT_PREFIXES):
-                raise ValueError("Registration denied: unauthorized redirect URI")
-        self._clients[client_info.client_id] = client_info
-        logger.info(f"Registered client: {client_info.client_id}")
+        raise NotImplementedError("Dynamic registration disabled")
 
     async def get_client(self, client_id: str) -> OAuthClientInformationFull | None:
-        return self._clients.get(client_id)
+        if client_id == self._client.client_id:
+            return self._client
+        return None
 
     async def authorize(
         self, client: OAuthClientInformationFull, params: AuthorizationParams
@@ -152,11 +155,14 @@ class InMemoryOAuthProvider(OAuthProvider):
 base_url = os.environ.get("MCP_BASE_URL")
 auth_provider = None
 if base_url:
+    oauth_client_id = os.environ.get("OAUTH_CLIENT_ID", "mcp-justwatch-client")
+    oauth_client_secret = os.environ.get("OAUTH_CLIENT_SECRET", secrets.token_urlsafe(32))
     auth_provider = InMemoryOAuthProvider(
         base_url=base_url,
-        client_registration_options=ClientRegistrationOptions(enabled=True),
+        client_id=oauth_client_id,
+        client_secret=oauth_client_secret,
     )
-    logger.info(f"OAuth enabled with base URL: {base_url}")
+    logger.info(f"OAuth enabled - client_id: {oauth_client_id}")
 
 # Initialize FastMCP server
 mcp = FastMCP("mcp-justwatch", auth=auth_provider)

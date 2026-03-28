@@ -5,7 +5,6 @@ import os
 from typing import Optional
 
 from fastmcp import FastMCP
-from fastmcp.server.auth import OAuthProvider
 from simplejustwatchapi import justwatch
 
 logging.basicConfig(
@@ -14,15 +13,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Configure OAuth if running in HTTP mode (remote deployment)
+# Check if running in HTTP mode (remote deployment)
 base_url = os.environ.get("MCP_BASE_URL")
-auth_provider = None
-if base_url:
-    auth_provider = OAuthProvider(base_url=base_url)
-    logger.info(f"OAuth enabled with base URL: {base_url}")
 
-# Initialize FastMCP server
-mcp = FastMCP("mcp-justwatch", auth=auth_provider)
+# Initialize FastMCP server (OAuth added after basic deployment works)
+mcp = FastMCP("mcp-justwatch")
 
 
 def format_media_entry(entry, index: Optional[int] = None) -> str:
